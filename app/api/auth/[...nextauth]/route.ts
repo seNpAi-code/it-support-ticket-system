@@ -1,6 +1,7 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
 import { supabaseAdmin } from "@/lib/supabase";
+import { v4 as uuidv4 } from 'uuid';
 
 export const authOptions: NextAuthOptions = {
     providers: [
@@ -12,7 +13,11 @@ export const authOptions: NextAuthOptions = {
     ],
     callbacks: {
         async signIn({ user, account, profile }) {
-            if (!user.email) return false;
+            console.log("SignIn Callback:", { user, account, profile });
+            if (!user.email) {
+                console.error("SignIn failed: No email provided");
+                return false;
+            }
 
             // Sync user to Supabase profiles
             const { data, error } = await supabaseAdmin
@@ -21,12 +26,20 @@ export const authOptions: NextAuthOptions = {
                 .eq('email', user.email)
                 .single();
 
+            console.log("Profile fetch result:", { data, error });
+
             if (error && error.code === 'PGRST116') {
                 // User does not exist, create them
+                console.log("User not found, creating profile...");
+
+                // Generate a random UUID for the user ID since we aren't using Supabase Auth
+                const newUserId = uuidv4();
+
                 const { error: insertError } = await supabaseAdmin
                     .from('profiles')
                     .insert([
                         {
+                            id: newUserId,
                             email: user.email,
                             full_name: user.name || 'Unknown',
                             role: 'user', // Default role
@@ -37,6 +50,10 @@ export const authOptions: NextAuthOptions = {
                     console.error('Error creating user profile:', insertError);
                     return false;
                 }
+                console.log("User profile created successfully");
+            } else if (error) {
+                console.error("Error fetching profile:", error);
+                return false;
             }
 
             return true;
@@ -59,9 +76,6 @@ export const authOptions: NextAuthOptions = {
         async jwt({ token, user }) {
             return token;
         }
-    },
-    pages: {
-        signIn: '/auth/signin', // Custom sign-in page if needed, or default
     },
 };
 
